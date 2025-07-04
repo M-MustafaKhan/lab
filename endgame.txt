@@ -1,0 +1,2920 @@
+1)Design and implement a program that accepts an NFA (with transitions) and outputs its equivalent DFA
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_STATES 10  // Reduced from 20 to prevent stack overflow
+#define MAX_SYMBOLS 10
+
+int nfa[MAX_STATES][MAX_SYMBOLS][MAX_STATES];  // nfa[state][symbol][states reachable]
+int nfa_state_count[MAX_STATES][MAX_SYMBOLS];  // how many states are reachable
+int dfa[1 << MAX_STATES][MAX_SYMBOLS];         // powerset of states as dfa states
+int is_visited[1 << MAX_STATES];               // to keep track of visited DFA states
+
+int n, symbols;
+char symbol_list[MAX_SYMBOLS];
+
+// Function to check if a state exists in the list
+int contains(int *arr, int len, int val) {
+    for (int i = 0; i < len; ++i)
+        if (arr[i] == val) return 1;
+    return 0;
+}
+
+// Function to get index of symbol
+int symbol_index(char c) {
+    for (int i = 0; i < symbols; ++i)
+        if (symbol_list[i] == c) return i;
+    return -1;
+}
+
+// Generate new DFA state from a subset of NFA states
+int get_dfa_state_id(int *subset, int size) {
+    int id = 0;
+    for (int i = 0; i < size; ++i)
+        id |= (1 << subset[i]);
+    return id;
+}
+
+// Print DFA
+void print_dfa(int dfa_states_count) {
+    printf("\nDFA Transitions:\n");
+
+    int max_dfa_states = 1 << n;
+
+    // Create mapping from bit representation to sequential numbers
+    int bit_to_seq[1024];  // Fixed size instead of variable
+    int seq_counter = 0;
+
+    // Initialize mapping
+    for (int i = 0; i < 1024; ++i) {
+        bit_to_seq[i] = -1;
+    }
+
+    // Find all visited states and assign sequential numbers
+    for (int i = 0; i < max_dfa_states && i < 1024; ++i) {
+        if (is_visited[i]) {
+            bit_to_seq[i] = seq_counter++;
+        }
+    }
+
+    // Print transitions using sequential numbering
+    for (int i = 0; i < max_dfa_states && i < 1024; ++i) {
+        if (is_visited[i]) {
+            printf("DFA State %d (NFA states: {", bit_to_seq[i]);
+
+            // Show which NFA states this DFA state represents
+            int first = 1;
+            for (int k = 0; k < n; ++k) {
+                if (i & (1 << k)) {
+                    if (!first) printf(",");
+                    printf("%d", k);
+                    first = 0;
+                }
+            }
+            printf("}) -> {");
+
+            for (int j = 0; j < symbols; ++j) {
+                int next_state = dfa[i][j];
+                if (next_state != 0 && next_state < 1024 && bit_to_seq[next_state] != -1) {
+                    printf(" %c: %d", symbol_list[j], bit_to_seq[next_state]);
+                } else {
+                    printf(" %c: -", symbol_list[j]);
+                }
+            }
+            printf(" }\n");
+        }
+    }
+}
+
+void nfa_to_dfa(int start_state) {
+    if (start_state < 0 || start_state >= n) {
+        printf("Error: Invalid start state %d\n", start_state);
+        return;
+    }
+
+    int max_dfa_states = 1 << n;  // 2^n possible states
+    int queue[1024], front = 0, rear = 0;  // Fixed size queue
+
+    // Initialize arrays with smaller size
+    for (int i = 0; i < max_dfa_states; ++i) {
+        is_visited[i] = 0;
+        for (int j = 0; j < symbols; ++j) {
+            dfa[i][j] = 0;
+        }
+    }
+
+    int initial_state = 1 << start_state;
+    queue[rear++] = initial_state; // Initial DFA state
+    is_visited[initial_state] = 1;
+
+    while (front < rear) {
+        int curr = queue[front++];
+
+        for (int sym = 0; sym < symbols; ++sym) {
+            int next = 0;
+
+            for (int i = 0; i < n; ++i) {
+                if (curr & (1 << i)) {
+                    for (int k = 0; k < nfa_state_count[i][sym]; ++k) {
+                        int target_state = nfa[i][sym][k];
+                        if (target_state >= 0 && target_state < n) {
+                            next |= (1 << target_state);
+                        }
+                    }
+                }
+            }
+
+            dfa[curr][sym] = next;
+
+            if (next != 0 && !is_visited[next] && rear < 1024) {
+                is_visited[next] = 1;
+                queue[rear++] = next;
+            }
+        }
+    }
+
+    print_dfa(rear);
+}
+
+int main() {
+    int final_states[MAX_STATES], final_count;
+    int start_state;
+
+    printf("Enter number of NFA states: ");
+    scanf("%d", &n);
+
+    printf("Enter number of input symbols: ");
+    scanf("%d", &symbols);
+
+    printf("Enter the symbols: ");
+    for (int i = 0; i < symbols; ++i)
+        scanf(" %c", &symbol_list[i]);
+
+    // Initialize transition table
+    for (int i = 0; i < n; ++i)
+        for (int j = 0; j < symbols; ++j)
+            nfa_state_count[i][j] = 0;
+
+    printf("Enter NFA transitions (enter -1 to end for a symbol):\n");
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < symbols; ++j) {
+            printf("State %d on symbol %c: ", i, symbol_list[j]);
+            int val;
+            while (1) {
+                if (scanf("%d", &val) != 1) {
+                    // Clear input buffer on invalid input
+                    while (getchar() != '\n');
+                    continue;
+                }
+                if (val == -1) break;
+                if (val >= 0 && val < n) {  // Validate state number
+                    nfa[i][j][nfa_state_count[i][j]++] = val;
+                } else {
+                    printf("Invalid state %d. Please enter a state between 0 and %d: ", val, n-1);
+                }
+            }
+        }
+    }
+
+    printf("Enter start state: ");
+    scanf("%d", &start_state);
+
+    printf("Enter number of final states: ");
+    scanf("%d", &final_count);
+
+    printf("Enter final states: ");
+    for (int i = 0; i < final_count; ++i)
+        scanf("%d", &final_states[i]);
+
+    nfa_to_dfa(start_state);
+    return 0;
+}
+
+
+
+
+
+
+
+
+===================================================================================================================================
+2)Construct an NFA from the regular expression (a|b)*abb and convert it into a DFA.
+
+#include <stdio.h>
+#include <string.h>
+
+#define MAX 10
+#define SYMBOLS 2 // 'a' and 'b'
+
+int get_symbol_index(char c) {
+    return c == 'a' ? 0 : 1;
+}
+
+// NFA representation
+int nfa[MAX][SYMBOLS][MAX];
+int nfa_count[MAX][SYMBOLS];
+int nfa_states = 4; // q0, q1, q2, q3
+
+void build_nfa() {
+    memset(nfa, 0, sizeof(nfa));
+    memset(nfa_count, 0, sizeof(nfa_count));
+
+    // (a|b)* loop on q0
+    nfa[0][0][nfa_count[0][0]++] = 0; // a loop
+    nfa[0][1][nfa_count[0][1]++] = 0; // b loop
+
+    // q0 --a--> q1
+    nfa[0][0][nfa_count[0][0]++] = 1;
+
+    // q1 --b--> q2
+    nfa[1][1][nfa_count[1][1]++] = 2;
+
+    // q2 --b--> q3 (final)
+    nfa[2][1][nfa_count[2][1]++] = 3;
+}
+
+void print_nfa() {
+    printf("\nNFA Transitions:\n");
+    for (int state = 0; state < nfa_states; state++) {
+        for (int sym = 0; sym < SYMBOLS; sym++) {
+            char symbol = (sym == 0) ? 'a' : 'b';
+            for (int t = 0; t < nfa_count[state][sym]; t++) {
+                printf("q%d --%c--> q%d\n", state, symbol, nfa[state][sym][t]);
+            }
+        }
+    }
+}
+
+void print_set(int set) {
+    printf("{ ");
+    for (int i = 0; i < nfa_states; i++) {
+        if (set & (1 << i))
+            printf("q%d ", i);
+    }
+    printf("}");
+}
+
+void nfa_to_dfa() {
+    int visited[1 << MAX] = {0};
+    int queue[1 << MAX], front = 0, rear = 0;
+
+    int start = 1 << 0; // start from q0
+    queue[rear++] = start;
+    visited[start] = 1;
+
+    printf("\nDFA Transitions:\n");
+
+    while (front < rear) {
+        int curr = queue[front++];
+
+        print_set(curr);
+        printf(" -> ");
+
+        for (int sym = 0; sym < SYMBOLS; sym++) {
+            int next = 0;
+
+            for (int i = 0; i < nfa_states; i++) {
+                if (curr & (1 << i)) {
+                    for (int j = 0; j < nfa_count[i][sym]; j++) {
+                        int target = nfa[i][sym][j];
+                        next |= (1 << target);
+                    }
+                }
+            }
+
+            printf("%c: ", sym == 0 ? 'a' : 'b');
+            print_set(next);
+            printf("  ");
+
+            if (next && !visited[next]) {
+                visited[next] = 1;
+                queue[rear++] = next;
+            }
+        }
+        printf("\n");
+    }
+}
+
+int main() {
+    build_nfa();
+    printf("NFA for (a|b)*abb built.\n");
+    printf("Start state: q0, Final state: q3\n");
+
+    print_nfa();      
+    nfa_to_dfa();
+
+    return 0;
+}
+
+
+
+
+
+
+============================================================================
+3)Implement a LEX scanner to detect and count keywords, identifiers, and numeric constants in a C-like code.
+
+%{
+#include <stdio.h>
+#include <string.h>
+
+int keywords = 0, identifiers = 0, numbers = 0;
+
+// List of C keywords
+const char* keyword_list[] = {
+    "int", "float", "return", "if", "else", "while", "for", "void", "char", "double"
+};
+int is_keyword(const char *word) {
+    for (int i = 0; i < sizeof(keyword_list)/sizeof(char*); i++)
+        if (strcmp(word, keyword_list[i]) == 0)
+            return 1;
+    return 0;
+}
+%}
+
+%%
+
+[ \t\n]+               ;  // Ignore whitespace
+
+[a-zA-Z_][a-zA-Z0-9_]* {
+    if (is_keyword(yytext))
+        keywords++;
+    else
+        identifiers++;
+}
+
+[0-9]+(\.[0-9]+)?      { numbers++; }
+
+.                      ;  // Ignore all other characters
+
+%%
+
+int main(int argc, char** argv) {
+    printf("Enter C-like code (Ctrl+D to end on Linux/macOS, Ctrl+Z then Enter on Windows):\n");
+    yylex();
+    printf("\nSummary:\n");
+    printf("Keywords   = %d\n", keywords);
+    printf("Identifiers= %d\n", identifiers);
+    printf("Numbers    = %d\n", numbers);
+    return 0;
+}
+
+int yywrap() { return 1; }
+
+
+
+
+
+
+=================================================================================================================================
+4)Write a LEX program to recognize and print tokens for arithmetic expressions involving +, -, *, /, and integers
+
+%{
+    #include<stdio.h>
+    #include<string.h>
+%}
+
+%%
+[a-zA-Z]    { printf("Variable %s\n", yytext);}
+[0-9]+      { printf("Number %s\n", yytext); }
+"+"         { printf("plus\n"); }
+"-"         { printf("minus\n"); }
+"*"         { printf("multiply\n"); }
+"/"         { printf("divide\n"); }
+[\t\n]+     ;           // Ignore whitespace
+.           { printf("Unknown character: %s\n", yytext); }
+
+%%
+
+int main() {
+    printf("Enter an Arithmetic Expression:\n");
+    yylex();
+    return 0;
+}
+
+int yywrap() {
+    return 1;
+}
+
+
+
+
+
+===============================================================================
+5)Write a program to construct the LL(1) parsing table for a user-defined grammar and parse input strings.
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX 20
+
+char productions[MAX][MAX];
+char nonTerminals[MAX], terminals[MAX];
+char first[MAX][MAX], follow[MAX][MAX], table[MAX][MAX][MAX];
+int numProductions = 0, numNonTerminals = 0, numTerminals = 0;
+char startSymbol;
+
+int find(char ch, char *arr, int len) {
+    for (int i = 0; i < len; i++)
+        if (arr[i] == ch) return i;
+    return -1;
+}
+
+void add(char *set, char ch) {
+    if (!strchr(set, ch))
+        strncat(set, &ch, 1);
+}
+
+void computeFirst(char ch, char *res) {
+    int idx = find(ch, nonTerminals, numNonTerminals);
+    if (idx == -1) return;
+    if (first[idx][0]) {
+        strcpy(res, first[idx]);
+        return;
+    }
+
+    for (int i = 0; i < numProductions; i++) {
+        if (productions[i][0] == ch) {
+            char *rhs = &productions[i][2];
+            if (rhs[0] == '@') {
+                add(res, '@');
+            } else {
+                for (int j = 0; rhs[j]; j++) {
+                    if (!isupper(rhs[j])) {
+                        add(res, rhs[j]);
+                        break;
+                    } else {
+                        char temp[MAX] = "";
+                        computeFirst(rhs[j], temp);
+                        for (int k = 0; temp[k]; k++) {
+                            if (temp[k] != '@') add(res, temp[k]);
+                        }
+                        if (!strchr(temp, '@')) break;
+                        if (rhs[j + 1] == '\0') add(res, '@');
+                    }
+                }
+            }
+        }
+    }
+
+    strcpy(first[idx], res);
+}
+
+void computeFollow(char ch, char *res) {
+    int idx = find(ch, nonTerminals, numNonTerminals);
+    if (idx == -1) return;
+    if (follow[idx][0]) {
+        strcpy(res, follow[idx]);
+        return;
+    }
+
+    if (ch == startSymbol) add(res, '$');
+
+    for (int i = 0; i < numProductions; i++) {
+        char *rhs = &productions[i][2];
+        for (int j = 0; rhs[j]; j++) {
+            if (rhs[j] == ch) {
+                if (rhs[j + 1]) {
+                    if (!isupper(rhs[j + 1])) {
+                        add(res, rhs[j + 1]);
+                    } else {
+                        char temp[MAX] = "";
+                        computeFirst(rhs[j + 1], temp);
+                        for (int k = 0; temp[k]; k++) {
+                            if (temp[k] != '@') add(res, temp[k]);
+                        }
+                        if (strchr(temp, '@')) {
+                            char temp2[MAX] = "";
+                            computeFollow(productions[i][0], temp2);
+                            for (int k = 0; temp2[k]; k++) add(res, temp2[k]);
+                        }
+                    }
+                } else {
+                    if (productions[i][0] != ch) {
+                        char temp2[MAX] = "";
+                        computeFollow(productions[i][0], temp2);
+                        for (int k = 0; temp2[k]; k++) add(res, temp2[k]);
+                    }
+                }
+            }
+        }
+    }
+
+    strcpy(follow[idx], res);
+}
+
+void buildTable() {
+    for (int i = 0; i < numProductions; i++) {
+        char nt = productions[i][0];
+        char *rhs = &productions[i][2];
+        char f[MAX] = "";
+
+        if (rhs[0] == '@') {
+            computeFollow(nt, f);
+        } else if (!isupper(rhs[0])) {
+            add(f, rhs[0]);
+        } else {
+            computeFirst(rhs[0], f);
+        }
+
+        int row = find(nt, nonTerminals, numNonTerminals);
+        for (int j = 0; f[j]; j++) {
+            int col = find(f[j], terminals, numTerminals);
+            if (row != -1 && col != -1)
+                strcpy(table[row][col], productions[i]);
+        }
+
+        if (strchr(f, '@')) {
+            char tempFollow[MAX] = "";
+            computeFollow(nt, tempFollow);
+            for (int j = 0; tempFollow[j]; j++) {
+                int col = find(tempFollow[j], terminals, numTerminals);
+                if (row != -1 && col != -1)
+                    strcpy(table[row][col], productions[i]);
+            }
+        }
+    }
+}
+
+void printTable() {
+    printf("\nLL(1) Parsing Table:\n     ");
+    for (int j = 0; j < numTerminals; j++)
+        printf("%4c", terminals[j]);
+    printf("\n");
+
+    for (int i = 0; i < numNonTerminals; i++) {
+        printf(" %c |", nonTerminals[i]);
+        for (int j = 0; j < numTerminals; j++) {
+            if (strlen(table[i][j]) > 0)
+                printf("%4s", &table[i][2]);
+            else
+                printf("%4s", "-");
+        }
+        printf("\n");
+    }
+}
+
+void parseInput(char *input) {
+    char stack[MAX];
+    int top = 0;
+    stack[top++] = '$';
+    stack[top++] = startSymbol;
+
+    int ip = 0;
+    printf("\nParsing steps:\n");
+    while (top > 0) {
+        char topSym = stack[--top];
+        char currSym = input[ip];
+
+        printf("Stack top: %c, Input: %c\n", topSym, currSym);
+
+        if (topSym == '$' && currSym == '$') {
+            printf("Input string successfully parsed!\n");
+            return;
+        } else if (!isupper(topSym)) {
+            if (topSym == currSym) ip++;
+            else {
+                printf("Error: Unexpected symbol '%c'\n", currSym);
+                return;
+            }
+        } else {
+            int row = find(topSym, nonTerminals, numNonTerminals);
+            int col = find(currSym, terminals, numTerminals);
+            if (strlen(table[row][col]) == 0) {
+                printf("Error: No rule for %c with input %c\n", topSym, currSym);
+                return;
+            }
+
+            char *rhs = &table[row][col][2];
+            printf("Applying rule: %s\n", table[row][col]);
+
+            for (int i = strlen(rhs) - 1; i >= 0; i--) {
+                if (rhs[i] != '@') stack[top++] = rhs[i];
+            }
+        }
+    }
+
+    if (input[ip] == '$')
+        printf("Parsing complete.\n");
+    else
+        printf("Error: Input not fully consumed.\n");
+}
+
+int main() {
+    printf("Enter number of productions: ");
+    scanf("%d", &numProductions);
+    printf("Enter productions (e.g. E=TR):\n");
+    for (int i = 0; i < numProductions; i++) {
+        scanf("%s", productions[i]);
+        char lhs = productions[i][0];
+        char *rhs = &productions[i][2];
+
+        if (!strchr(nonTerminals, lhs))
+            nonTerminals[numNonTerminals++] = lhs;
+
+        for (int j = 0; rhs[j]; j++) {
+            char sym = rhs[j];
+            if (!isupper(sym) && sym != '@' && !strchr(terminals, sym))
+                terminals[numTerminals++] = sym;
+        }
+    }
+
+    terminals[numTerminals++] = '$';
+    startSymbol = productions[0][0];
+
+    for (int i = 0; i < numNonTerminals; i++) {
+        char temp[MAX] = "";
+        computeFirst(nonTerminals[i], temp);
+    }
+
+    for (int i = 0; i < numNonTerminals; i++) {
+        char temp[MAX] = "";
+        computeFollow(nonTerminals[i], temp);
+    }
+
+    buildTable();
+
+    printf("\nFIRST Sets:\n");
+    for (int i = 0; i < numNonTerminals; i++)
+        printf("FIRST(%c) = %s\n", nonTerminals[i], first[i]);
+
+    printf("\nFOLLOW Sets:\n");
+    for (int i = 0; i < numNonTerminals; i++)
+        printf("FOLLOW(%c) = %s\n", nonTerminals[i], follow[i]);
+
+    printTable();
+
+    char input[MAX];
+    printf("\nEnter input string to parse (end with $): ");
+    scanf("%s", input);
+
+    parseInput(input);
+    return 0;
+}
+
+
+
+
+
+==============================================================================================================================
+6)For a given LL(1) grammar, compute the FIRST and FOLLOW sets and construct the predictive parsing table
+
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX 10
+
+char production[MAX][MAX];
+char first[MAX][MAX], follow[MAX][MAX];
+char table[MAX][MAX][MAX];
+char symbols[MAX];
+int n, symbol_count = 0;
+
+int symbolIndex(char c) {
+    for (int i = 0; i < symbol_count; i++)
+        if (symbols[i] == c) return i;
+    symbols[symbol_count++] = c;
+    return symbol_count - 1;
+}
+
+void addToSet(char *set, char c) {
+    if (!strchr(set, c)) {
+        int len = strlen(set);
+        set[len] = c;
+        set[len + 1] = '\0';
+    }
+}
+
+void computeFirst(int p) {
+    char *prod = production[p];
+    int i = 2;
+    while (prod[i] != '\0') {
+        if (!isupper(prod[i])) {
+            addToSet(first[p], prod[i]);
+            return;
+        }
+        for (int k = 0; k < n; k++) {
+            if (production[k][0] == prod[i]) {
+                computeFirst(k);
+                for (int j = 0; first[k][j]; j++) {
+                    if (first[k][j] != '#')
+                        addToSet(first[p], first[k][j]);
+                }
+                if (!strchr(first[k], '#'))
+                    return;
+            }
+        }
+        if (!strchr(first[p], '#'))
+            return;
+        i++;
+    }
+    addToSet(first[p], '#');
+}
+
+void computeFollow(char c) {
+    if (c == production[0][0])
+        addToSet(follow[symbolIndex(c)], '$');
+
+    for (int i = 0; i < n; i++) {
+        char *rhs = production[i];
+        for (int j = 2; rhs[j]; j++) {
+            if (rhs[j] == c) {
+                if (rhs[j + 1] != '\0') {
+                    if (!isupper(rhs[j + 1]))
+                        addToSet(follow[symbolIndex(c)], rhs[j + 1]);
+                    else {
+                        for (int k = 0; k < n; k++) {
+                            if (production[k][0] == rhs[j + 1]) {
+                                for (int x = 0; first[k][x]; x++) {
+                                    if (first[k][x] != '#')
+                                        addToSet(follow[symbolIndex(c)], first[k][x]);
+                                }
+                                if (strchr(first[k], '#')) {
+                                    char lhs = production[i][0];
+                                    for (int x = 0; follow[symbolIndex(lhs)][x]; x++)
+                                        addToSet(follow[symbolIndex(c)], follow[symbolIndex(lhs)][x]);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    char lhs = production[i][0];
+                    for (int x = 0; follow[symbolIndex(lhs)][x]; x++)
+                        addToSet(follow[symbolIndex(c)], follow[symbolIndex(lhs)][x]);
+                }
+            }
+        }
+    }
+}
+
+void buildTable() {
+    for (int i = 0; i < n; i++) {
+        int A = symbolIndex(production[i][0]);
+        if (!isupper(production[i][2])) {
+            int a = symbolIndex(production[i][2]);
+            strcpy(table[A][a], production[i]);
+        } else {
+            for (int j = 0; j < n; j++) {
+                if (production[j][0] == production[i][2]) {
+                    for (int k = 0; first[j][k]; k++) {
+                        int a = symbolIndex(first[j][k]);
+                        strcpy(table[A][a], production[i]);
+                    }
+                    if (strchr(first[j], '#')) {
+                        for (int k = 0; follow[A][k]; k++) {
+                            int b = symbolIndex(follow[A][k]);
+                            strcpy(table[A][b], production[i]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+int main() {
+    printf("Enter number of productions: ");
+    scanf("%d", &n);
+    printf("Enter productions (e.g. E=TR, R=@ for ε):\n");
+    for (int i = 0; i < n; i++) {
+        scanf("%s", production[i]);
+        symbolIndex(production[i][0]);
+    }
+
+    for (int i = 0; i < n; i++)
+        computeFirst(i);
+
+    printf("\nFIRST Sets:\n");
+    for (int i = 0; i < n; i++)
+        printf("FIRST(%c) = %s\n", production[i][0], first[i]);
+
+    for (int i = 0; i < n; i++)
+        computeFollow(production[i][0]);
+
+    printf("\nFOLLOW Sets:\n");
+    for (int i = 0; i < n; i++)
+        printf("FOLLOW(%c) = %s\n", production[i][0], follow[symbolIndex(production[i][0])]);
+
+    buildTable();
+
+    printf("\nLL(1) Parsing Table:\n");
+    printf("\t");
+    for (int i = 0; i < symbol_count; i++)
+        if (!isupper(symbols[i]))
+            printf("%c\t", symbols[i]);
+    printf("\n");
+
+    for (int i = 0; i < symbol_count; i++) {
+        if (isupper(symbols[i])) {
+            printf("%c\t", symbols[i]);
+            for (int j = 0; j < symbol_count; j++) {
+                if (!isupper(symbols[j])) {
+                    if (strlen(table[i][j]))
+                        printf("%s\t", table[i][j]);
+                    else
+                        printf("-\t");
+                }
+            }
+            printf("\n");
+        }
+    }
+
+    return 0;
+}
+
+
+
+
+
+=========================================================================================================
+7)Develop a program to construct the SLR parsing table (ACTION and GOTO) by considering ay grammar
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX_PRODUCTIONS 100
+#define MAX_SYMBOLS 100
+#define MAX_STATES 100
+#define MAX_ITEMS 100
+#define MAX_LENGTH 100
+
+typedef struct {
+    char lhs;
+    char rhs[20];
+} Production;
+
+typedef struct {
+    char lhs;
+    char rhs[20];
+    int dot;
+} Item;
+
+typedef struct {
+    Item items[MAX_ITEMS];
+    int count;
+} State;
+
+Production productions[MAX_PRODUCTIONS];
+char symbols[MAX_SYMBOLS];
+int prodCount = 0, symCount = 0;
+char terminals[MAX_SYMBOLS], nonTerminals[MAX_SYMBOLS];
+int termCount = 0, nonTermCount = 0;
+
+State states[MAX_STATES];
+int stateCount = 0;
+
+char follow[MAX_SYMBOLS][MAX_SYMBOLS];
+int followCount[MAX_SYMBOLS];
+
+// ---------- Utility ----------
+int isTerminal(char c) {
+    return !(c >= 'A' && c <= 'Z');
+}
+
+int symbolIndex(char c) {
+    for (int i = 0; i < symCount; i++)
+        if (symbols[i] == c) return i;
+    symbols[symCount++] = c;
+    return symCount - 1;
+}
+
+void addProduction(char lhs, const char *rhs) {
+    productions[prodCount].lhs = lhs;
+    strcpy(productions[prodCount].rhs, rhs);
+    prodCount++;
+    symbolIndex(lhs);
+    for (int i = 0; rhs[i]; i++)
+        symbolIndex(rhs[i]);
+}
+
+int isItemEqual(Item a, Item b) {
+    return a.lhs == b.lhs && strcmp(a.rhs, b.rhs) == 0 && a.dot == b.dot;
+}
+
+int stateExists(State s) {
+    for (int i = 0; i < stateCount; i++) {
+        if (s.count != states[i].count) continue;
+        int match = 1;
+        for (int j = 0; j < s.count; j++)
+            if (!isItemEqual(s.items[j], states[i].items[j]))
+                match = 0;
+        if (match) return i;
+    }
+    return -1;
+}
+
+void closure(State *s) {
+    int changed;
+    do {
+        changed = 0;
+        for (int i = 0; i < s->count; i++) {
+            Item it = s->items[i];
+            if (it.dot < strlen(it.rhs)) {
+                char B = it.rhs[it.dot];
+                if (!isTerminal(B)) {
+                    for (int j = 0; j < prodCount; j++) {
+                        if (productions[j].lhs == B) {
+                            Item newItem = {B, "", 0};
+                            strcpy(newItem.rhs, productions[j].rhs);
+                            int exists = 0;
+                            for (int k = 0; k < s->count; k++) {
+                                if (isItemEqual(s->items[k], newItem)) {
+                                    exists = 1;
+                                    break;
+                                }
+                            }
+                            if (!exists) {
+                                s->items[s->count++] = newItem;
+                                changed = 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } while (changed);
+}
+
+State goTo(State s, char X) {
+    State newState = {.count = 0};
+    for (int i = 0; i < s.count; i++) {
+        Item it = s.items[i];
+        if (it.dot < strlen(it.rhs) && it.rhs[it.dot] == X) {
+            Item moved = it;
+            moved.dot++;
+            newState.items[newState.count++] = moved;
+        }
+    }
+    closure(&newState);
+    return newState;
+}
+
+// ---------- FIRST/FOLLOW ----------
+void computeFollow(char startSymbol) {
+    for (int i = 0; i < symCount; i++)
+        followCount[i] = 0;
+    follow[symbolIndex(startSymbol)][followCount[symbolIndex(startSymbol)]++] = '$';
+
+    int changed;
+    do {
+        changed = 0;
+        for (int i = 0; i < prodCount; i++) {
+            char lhs = productions[i].lhs;
+            char *rhs = productions[i].rhs;
+            for (int j = 0; j < strlen(rhs); j++) {
+                if (!isTerminal(rhs[j])) {
+                    int k = j + 1;
+                    if (k < strlen(rhs) && isTerminal(rhs[k])) {
+                        int idx = symbolIndex(rhs[j]);
+                        int exists = 0;
+                        for (int x = 0; x < followCount[idx]; x++)
+                            if (follow[idx][x] == rhs[k]) exists = 1;
+                        if (!exists) {
+                            follow[idx][followCount[idx]++] = rhs[k];
+                            changed = 1;
+                        }
+                    } else if (k == strlen(rhs)) {
+                        int from = symbolIndex(lhs), to = symbolIndex(rhs[j]);
+                        for (int x = 0; x < followCount[from]; x++) {
+                            char f = follow[from][x];
+                            int exists = 0;
+                            for (int y = 0; y < followCount[to]; y++)
+                                if (follow[to][y] == f) exists = 1;
+                            if (!exists) {
+                                follow[to][followCount[to]++] = f;
+                                changed = 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } while (changed);
+}
+
+// ---------- Table Construction ----------
+char action[MAX_STATES][MAX_SYMBOLS][20];
+int goToTable[MAX_STATES][MAX_SYMBOLS];
+
+void buildSLRTable() {
+    for (int i = 0; i < stateCount; i++) {
+        for (int j = 0; j < symCount; j++) {
+            char X = symbols[j];
+            State newState = goTo(states[i], X);
+            if (newState.count == 0) continue;
+            int exists = stateExists(newState);
+            if (exists == -1) {
+                states[stateCount] = newState;
+                exists = stateCount++;
+            }
+            if (isTerminal(X))
+                sprintf(action[i][j], "s%d", exists);
+            else
+                goToTable[i][j] = exists;
+        }
+        for (int k = 0; k < states[i].count; k++) {
+            Item it = states[i].items[k];
+            if (it.dot == strlen(it.rhs)) {
+                if (it.lhs == 'Z') {
+                    int dollar = symbolIndex('$');
+                    strcpy(action[i][dollar], "acc");
+                } else {
+                    for (int f = 0; f < followCount[symbolIndex(it.lhs)]; f++) {
+                        char term = follow[symbolIndex(it.lhs)][f];
+                        int tIdx = symbolIndex(term);
+                        for (int p = 0; p < prodCount; p++) {
+                            if (productions[p].lhs == it.lhs && strcmp(productions[p].rhs, it.rhs) == 0) {
+                                sprintf(action[i][tIdx], "r%d", p);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------- Main ----------
+int main() {
+    printf("Enter productions (A->B). Type 'end->' to finish:\n");
+    while (1) {
+        char input[100];
+        scanf("%s", input);
+        if (strcmp(input, "end->") == 0) break;
+        char lhs = input[0];
+        char *rhs = strchr(input, '>') + 1;
+        addProduction(lhs, rhs);
+    }
+
+    char start = productions[0].lhs;
+    char augRHS[2] = {start, '\0'};
+    addProduction('Z', augRHS); // Augmented grammar
+
+    computeFollow(start);
+
+    // Initial state
+    states[0].count = 1;
+    states[0].items[0].lhs = 'Z';
+    strcpy(states[0].items[0].rhs, augRHS);
+    states[0].items[0].dot = 0;
+    closure(&states[0]);
+    stateCount = 1;
+
+    // Canonical collection
+    for (int i = 0; i < stateCount; i++) {
+        for (int j = 0; j < symCount; j++) {
+            State s = goTo(states[i], symbols[j]);
+            if (s.count == 0) continue;
+            int exists = stateExists(s);
+            if (exists == -1) {
+                states[stateCount++] = s;
+            }
+        }
+    }
+
+    buildSLRTable();
+
+    printf("\nSLR Parsing Table:\n");
+    printf("State\t");
+    for (int i = 0; i < symCount; i++)
+        if (isTerminal(symbols[i])) printf("%c\t", symbols[i]);
+    for (int i = 0; i < symCount; i++)
+        if (!isTerminal(symbols[i])) printf("%c\t", symbols[i]);
+    printf("\n");
+
+    for (int i = 0; i < stateCount; i++) {
+        printf("%d\t", i);
+        for (int j = 0; j < symCount; j++)
+            if (isTerminal(symbols[j]))
+                printf("%s\t", action[i][j][0] ? action[i][j] : "-");
+        for (int j = 0; j < symCount; j++)
+            if (!isTerminal(symbols[j]))
+                printf("%d\t", goToTable[i][j]);
+        printf("\n");
+    }
+
+    return 0;
+}
+
+
+
+
+=============================================================================================
+8)Construct the canonical collection of LR(0) items for the any grammar to initiate SLR parsing
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX_RULES 100
+#define MAX_SYMBOL_LEN 20
+#define MAX_ITEMS 100
+#define MAX_STATES 100
+#define MAX_PROD_LEN 100
+
+// ---------- Structures ----------
+typedef struct {
+    char lhs[MAX_SYMBOL_LEN];
+    char rhs[MAX_PROD_LEN][MAX_SYMBOL_LEN];
+    int rhs_len;
+} Production;
+
+typedef struct {
+    char lhs[MAX_SYMBOL_LEN];
+    char rhs[MAX_PROD_LEN][MAX_SYMBOL_LEN];
+    int rhs_len;
+    int dot_pos;
+} Item;
+
+typedef struct {
+    Item items[MAX_ITEMS];
+    int count;
+} ItemSet;
+
+Production grammar[MAX_RULES];
+int grammar_count = 0;
+
+ItemSet states[MAX_STATES];
+int state_count = 0;
+
+char symbols[MAX_RULES * MAX_SYMBOL_LEN][MAX_SYMBOL_LEN];
+int sym_count = 0;
+
+// ---------- Utility Functions ----------
+int is_non_terminal(const char *s) {
+    return isupper(s[0]);
+}
+
+int symbol_index(const char *s) {
+    for (int i = 0; i < sym_count; i++)
+        if (strcmp(symbols[i], s) == 0) return i;
+    strcpy(symbols[sym_count], s);
+    return sym_count++;
+}
+
+void tokenize_rhs(const char *rhs_raw, char tokens[MAX_PROD_LEN][MAX_SYMBOL_LEN], int *count) {
+    int i = 0, k = 0;
+    char temp[MAX_SYMBOL_LEN];
+    *count = 0;
+    while (rhs_raw[i] != '\0') {
+        if (isspace(rhs_raw[i])) {
+            i++;
+            continue;
+        }
+        if (isalnum(rhs_raw[i])) {
+            k = 0;
+            while (isalnum(rhs_raw[i])) {
+                temp[k++] = rhs_raw[i++];
+            }
+            temp[k] = '\0';
+            strcpy(tokens[*count], temp);
+            (*count)++;
+        } else {
+            temp[0] = rhs_raw[i++];
+            temp[1] = '\0';
+            strcpy(tokens[*count], temp);
+            (*count)++;
+        }
+    }
+}
+
+void parse_and_add_production(char *input) {
+    // Find '->' and split
+    char *arrow = strstr(input, "->");
+    if (!arrow) return;
+
+    char lhs[MAX_SYMBOL_LEN];
+    strncpy(lhs, input, arrow - input);
+    lhs[arrow - input] = '\0';
+
+    // Remove spaces from lhs
+    char clean_lhs[MAX_SYMBOL_LEN];
+    int i = 0, j = 0;
+    while (lhs[i]) {
+        if (!isspace(lhs[i])) clean_lhs[j++] = lhs[i];
+        i++;
+    }
+    clean_lhs[j] = '\0';
+
+    char *rhs_all = arrow + 2;  // after '->'
+    char *alt = strtok(rhs_all, "|");
+
+    while (alt) {
+        Production *p = &grammar[grammar_count];
+        strcpy(p->lhs, clean_lhs);
+        tokenize_rhs(alt, p->rhs, &p->rhs_len);
+        for (int i = 0; i < p->rhs_len; i++) {
+            symbol_index(p->rhs[i]);
+        }
+        symbol_index(clean_lhs);
+        grammar_count++;
+        alt = strtok(NULL, "|");
+    }
+}
+
+int item_equal(Item *a, Item *b) {
+    if (strcmp(a->lhs, b->lhs) != 0 || a->rhs_len != b->rhs_len || a->dot_pos != b->dot_pos)
+        return 0;
+    for (int i = 0; i < a->rhs_len; i++)
+        if (strcmp(a->rhs[i], b->rhs[i]) != 0) return 0;
+    return 1;
+}
+
+int itemset_equal(ItemSet *a, ItemSet *b) {
+    if (a->count != b->count) return 0;
+    for (int i = 0; i < a->count; i++) {
+        int found = 0;
+        for (int j = 0; j < b->count; j++)
+            if (item_equal(&a->items[i], &b->items[j])) found = 1;
+        if (!found) return 0;
+    }
+    return 1;
+}
+
+void closure(ItemSet *iset) {
+    int changed;
+    do {
+        changed = 0;
+        for (int i = 0; i < iset->count; i++) {
+            Item *it = &iset->items[i];
+            if (it->dot_pos < it->rhs_len && is_non_terminal(it->rhs[it->dot_pos])) {
+                char *B = it->rhs[it->dot_pos];
+                for (int j = 0; j < grammar_count; j++) {
+                    if (strcmp(grammar[j].lhs, B) == 0) {
+                        Item new_item = {.rhs_len = grammar[j].rhs_len, .dot_pos = 0};
+                        strcpy(new_item.lhs, grammar[j].lhs);
+                        for (int k = 0; k < grammar[j].rhs_len; k++)
+                            strcpy(new_item.rhs[k], grammar[j].rhs[k]);
+                        int exists = 0;
+                        for (int x = 0; x < iset->count; x++)
+                            if (item_equal(&iset->items[x], &new_item)) exists = 1;
+                        if (!exists) {
+                            iset->items[iset->count++] = new_item;
+                            changed = 1;
+                        }
+                    }
+                }
+            }
+        }
+    } while (changed);
+}
+
+ItemSet go_to(ItemSet *iset, const char *sym) {
+    ItemSet new_set = {.count = 0};
+    for (int i = 0; i < iset->count; i++) {
+        Item it = iset->items[i];
+        if (it.dot_pos < it.rhs_len && strcmp(it.rhs[it.dot_pos], sym) == 0) {
+            it.dot_pos++;
+            new_set.items[new_set.count++] = it;
+        }
+    }
+    closure(&new_set);
+    return new_set;
+}
+
+int state_exists(ItemSet *iset) {
+    for (int i = 0; i < state_count; i++)
+        if (itemset_equal(&states[i], iset)) return i;
+    return -1;
+}
+
+void print_item(Item it) {
+    printf("  %s -> ", it.lhs);
+    for (int i = 0; i < it.rhs_len; i++) {
+        if (i == it.dot_pos) printf("• ");
+        printf("%s ", it.rhs[i]);
+    }
+    if (it.dot_pos == it.rhs_len) printf("•");
+    printf("\n");
+}
+
+void construct_and_print_states(const char *start_symbol) {
+    ItemSet start = {.count = 1};
+    strcpy(start.items[0].lhs, "S'");
+    strcpy(start.items[0].rhs[0], start_symbol);
+    start.items[0].rhs_len = 1;
+    start.items[0].dot_pos = 0;
+    closure(&start);
+    states[state_count++] = start;
+
+    printf("\n========== Canonical Collection of LR(0) Items =========\n");
+    for (int i = 0; i < state_count; i++) {
+        printf("\nState %d:\n", i);
+        for (int j = 0; j < states[i].count; j++)
+            print_item(states[i].items[j]);
+
+        for (int k = 0; k < sym_count; k++) {
+            ItemSet next = go_to(&states[i], symbols[k]);
+            if (next.count > 0) {
+                int index = state_exists(&next);
+                if (index == -1) {
+                    index = state_count;
+                    states[state_count++] = next;
+                }
+                printf("  [GOTO(State %d, %s) = State %d]\n", i, symbols[k], index);
+            }
+        }
+    }
+    printf("\n========================================================\n");
+}
+
+int main() {
+    printf("Enter grammar productions (like E->E+T|T). Type 'end' to stop:\n");
+    char line[200];
+    while (1) {
+        fgets(line, sizeof(line), stdin);
+        line[strcspn(line, "\n")] = 0;
+        if (strcmp(line, "end") == 0) break;
+        parse_and_add_production(line);
+    }
+
+    for (int i = grammar_count; i > 0; i--)
+        grammar[i] = grammar[i - 1];
+    strcpy(grammar[0].lhs, "S'");
+    strcpy(grammar[0].rhs[0], grammar[1].lhs);
+    grammar[0].rhs_len = 1;
+    grammar_count++;
+
+    construct_and_print_states(grammar[1].lhs);
+    return 0;
+}
+
+
+
+
+=============================================================================================================
+9)Write a program to implement the unification algorithm for two logical expressions with variables and constants
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX 100
+
+typedef struct Substitution {
+    char var[50];
+    char value[50];
+} Substitution;
+
+Substitution subs[MAX];
+int subCount = 0;
+
+// Checks if string is a variable (lowercase and not a function)
+int isVariable(char *s) {
+    return islower(s[0]) && strchr(s, '(') == NULL;
+}
+
+// Remove all spaces
+void trim(char *str) {
+    char temp[100];
+    int j = 0;
+    for (int i = 0; str[i]; i++)
+        if (!isspace(str[i])) temp[j++] = str[i];
+    temp[j] = '\0';
+    strcpy(str, temp);
+}
+
+// Add substitution or update existing
+void addSubstitution(char *var, char *val) {
+    for (int i = 0; i < subCount; i++) {
+        if (strcmp(subs[i].var, var) == 0) {
+            strcpy(subs[i].value, val);
+            return;
+        }
+    }
+    strcpy(subs[subCount].var, var);
+    strcpy(subs[subCount].value, val);
+    subCount++;
+}
+
+// Apply substitution if present
+void applySubstitutions(char *s) {
+    for (int i = 0; i < subCount; i++) {
+        if (strcmp(subs[i].var, s) == 0) {
+            strcpy(s, subs[i].value);
+            return;
+        }
+    }
+}
+
+// Prevent invalid unification like x = f(x)
+int occursCheck(char *var, char *expr) {
+    return strstr(expr, var) != NULL;
+}
+
+// Parse function name and arguments
+void parseExpression(char *expr, char *func, char args[][50], int *argc) {
+    int i = 0, j = 0, k = 0, nested = 0;
+    while (expr[i] != '(' && expr[i] != '\0') func[j++] = expr[i++];
+    func[j] = '\0';
+    if (expr[i] == '\0') {
+        *argc = 0;
+        return;
+    }
+
+    i++; // skip '('
+    j = 0;
+    while (expr[i] != '\0') {
+        if (expr[i] == '(') nested++;
+        if (expr[i] == ')') nested--;
+        if ((expr[i] == ',' && nested == 0) || (expr[i] == ')' && nested < 0)) {
+            args[k][j] = '\0';
+            k++; j = 0;
+            if (expr[i] == ')') break;
+            i++;
+            continue;
+        }
+        args[k][j++] = expr[i++];
+    }
+    args[k][j] = '\0';
+    *argc = k + 1;
+}
+
+// Recursive unification
+int unify(char *expr1, char *expr2);
+
+// Unify argument lists
+int unifyArgs(char args1[][50], char args2[][50], int argc) {
+    for (int i = 0; i < argc; i++) {
+        if (!unify(args1[i], args2[i]))
+            return 0;
+    }
+    return 1;
+}
+
+int unify(char *expr1, char *expr2) {
+    char x[100], y[100];
+    strcpy(x, expr1);
+    strcpy(y, expr2);
+
+    applySubstitutions(x);
+    applySubstitutions(y);
+
+    if (strcmp(x, y) == 0)
+        return 1;
+
+    if (isVariable(x)) {
+        if (occursCheck(x, y)) return 0;
+        addSubstitution(x, y);
+        return 1;
+    }
+
+    if (isVariable(y)) {
+        if (occursCheck(y, x)) return 0;
+        addSubstitution(y, x);
+        return 1;
+    }
+
+    char func1[50], func2[50];
+    char args1[10][50], args2[10][50];
+    int argc1 = 0, argc2 = 0;
+
+    parseExpression(x, func1, args1, &argc1);
+    parseExpression(y, func2, args2, &argc2);
+
+    if (strcmp(func1, func2) != 0 || argc1 != argc2)
+        return 0;
+
+    return unifyArgs(args1, args2, argc1);
+}
+
+int main() {
+    char expr1[100], expr2[100];
+
+    printf("Enter first expression: ");
+    scanf(" %[^\n]", expr1);
+    trim(expr1);
+
+    printf("Enter second expression: ");
+    scanf(" %[^\n]", expr2);
+    trim(expr2);
+
+    if (unify(expr1, expr2)) {
+        printf("\n Unification successful!\nSubstitutions:\n");
+        for (int i = 0; i < subCount; i++) {
+            printf("%s → %s\n", subs[i].var, subs[i].value);
+        }
+    } else {
+        printf("\n Unification failed.\n");
+    }
+
+    return 0;
+}
+
+
+
+
+============================================================================================================================
+10)Construct the canonical LR(1) items for the given grammar and list the states with transitions
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+
+#define MAX_PRODUCTIONS 20
+#define MAX_SYMBOLS 10
+#define MAX_ITEMS 100
+#define MAX_STATES 50
+#define MAX_TRANSITIONS 20
+
+typedef struct {
+    char lhs;
+    char rhs[MAX_SYMBOLS];
+} Production;
+
+typedef struct {
+    int prodIndex;
+    int dotPos;
+    char lookahead;
+} Item;
+
+typedef struct {
+    Item items[MAX_ITEMS];
+    int count;
+} ItemSet;
+
+typedef struct {
+    ItemSet set;
+    struct {
+        char symbol;
+        int target;
+    } transitions[MAX_TRANSITIONS];
+    int transCount;
+} State;
+
+Production prods[MAX_PRODUCTIONS];
+int prodCount = 0;
+State states[MAX_STATES];
+int stateCount = 0;
+
+bool isTerminal(char ch) {
+    return ch >= 'a' && ch <= 'z' || ch == '$';
+}
+
+void addProduction(char lhs, const char *rhs) {
+    prods[prodCount].lhs = lhs;
+    strcpy(prods[prodCount++].rhs, rhs);
+}
+
+bool itemEquals(Item a, Item b) {
+    return a.prodIndex == b.prodIndex && a.dotPos == b.dotPos && a.lookahead == b.lookahead;
+}
+
+bool itemInSet(ItemSet *set, Item item) {
+    for (int i = 0; i < set->count; i++) {
+        if (itemEquals(set->items[i], item)) return true;
+    }
+    return false;
+}
+
+void addItem(ItemSet *set, Item item) {
+    if (!itemInSet(set, item)) {
+        set->items[set->count++] = item;
+    }
+}
+
+void computeFirst(char symbol, char *out, int *count) {
+    if (isTerminal(symbol)) {
+        out[(*count)++] = symbol;
+        return;
+    }
+    for (int i = 0; i < prodCount; i++) {
+        if (prods[i].lhs == symbol && prods[i].rhs[0] != '\0') {
+            computeFirst(prods[i].rhs[0], out, count);
+        }
+    }
+}
+
+void closure(ItemSet *set) {
+    int changed = 1;
+    while (changed) {
+        changed = 0;
+        for (int i = 0; i < set->count; i++) {
+            Item item = set->items[i];
+            char *rhs = prods[item.prodIndex].rhs;
+            if (item.dotPos >= strlen(rhs)) continue;
+            char symbol = rhs[item.dotPos];
+
+            if (!isTerminal(symbol)) {
+                char lookaheadSet[10]; int laCount = 0;
+                if (item.dotPos + 1 < strlen(rhs))
+                    computeFirst(rhs[item.dotPos + 1], lookaheadSet, &laCount);
+                else
+                    lookaheadSet[laCount++] = item.lookahead;
+
+                for (int j = 0; j < prodCount; j++) {
+                    if (prods[j].lhs == symbol) {
+                        for (int k = 0; k < laCount; k++) {
+                            Item newItem = { j, 0, lookaheadSet[k] };
+                            if (!itemInSet(set, newItem)) {
+                                addItem(set, newItem);
+                                changed = 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+ItemSet gotoSet(ItemSet *set, char symbol) {
+    ItemSet newSet = {0};
+    for (int i = 0; i < set->count; i++) {
+        Item item = set->items[i];
+        char *rhs = prods[item.prodIndex].rhs;
+        if (item.dotPos < strlen(rhs) && rhs[item.dotPos] == symbol) {
+            Item next = item;
+            next.dotPos++;
+            addItem(&newSet, next);
+        }
+    }
+    closure(&newSet);
+    return newSet;
+}
+
+bool setsEqual(ItemSet *a, ItemSet *b) {
+    if (a->count != b->count) return false;
+    for (int i = 0; i < a->count; i++)
+        if (!itemInSet(b, a->items[i])) return false;
+    return true;
+}
+
+int addState(ItemSet *set) {
+    for (int i = 0; i < stateCount; i++) {
+        if (setsEqual(set, &states[i].set)) return i;
+    }
+    states[stateCount].set = *set;
+    return stateCount++;
+}
+
+void buildLR1States() {
+    ItemSet start = {0};
+    Item startItem = { 0, 0, '$' }; // Z' → .S, $
+    addItem(&start, startItem);
+    closure(&start);
+
+    int queue[MAX_STATES], front = 0, rear = 0;
+    int startId = addState(&start);
+    queue[rear++] = startId;
+
+    while (front < rear) {
+        int curr = queue[front++];
+        ItemSet *currSet = &states[curr].set;
+
+        char symbols[20]; int symCount = 0;
+        for (int i = 0; i < currSet->count; i++) {
+            char *rhs = prods[currSet->items[i].prodIndex].rhs;
+            int pos = currSet->items[i].dotPos;
+            if (pos < strlen(rhs)) {
+                char sym = rhs[pos];
+                int found = 0;
+                for (int j = 0; j < symCount; j++)
+                    if (symbols[j] == sym) { found = 1; break; }
+                if (!found) symbols[symCount++] = sym;
+            }
+        }
+
+        for (int i = 0; i < symCount; i++) {
+            ItemSet next = gotoSet(currSet, symbols[i]);
+            int nextId = addState(&next);
+
+            // Check for existing transition
+            int exists = 0;
+            for (int t = 0; t < states[curr].transCount; t++) {
+                if (states[curr].transitions[t].symbol == symbols[i] &&
+                    states[curr].transitions[t].target == nextId)
+                    exists = 1;
+            }
+            if (!exists) {
+                states[curr].transitions[states[curr].transCount++] = (typeof(states[curr].transitions[0])){symbols[i], nextId};
+                if (nextId >= stateCount - 1)
+                    queue[rear++] = nextId;
+            }
+        }
+    }
+}
+
+void printItem(Item item) {
+    printf("[%c → ", prods[item.prodIndex].lhs);
+    for (int i = 0; i < strlen(prods[item.prodIndex].rhs); i++) {
+        if (i == item.dotPos) printf(".");
+        printf("%c", prods[item.prodIndex].rhs[i]);
+    }
+    if (item.dotPos == strlen(prods[item.prodIndex].rhs)) printf(".");
+    printf(", %c]\n", item.lookahead);
+}
+
+void printStates() {
+    for (int i = 0; i < stateCount; i++) {
+        printf("\nState %d:\n", i);
+        for (int j = 0; j < states[i].set.count; j++) {
+            printItem(states[i].set.items[j]);
+        }
+        for (int j = 0; j < states[i].transCount; j++) {
+            printf("  -- %c --> State %d\n", states[i].transitions[j].symbol, states[i].transitions[j].target);
+        }
+    }
+}
+
+int main() {
+    // Augmented grammar: Z → S
+    addProduction('Z', "S");
+    addProduction('S', "CC");
+    addProduction('C', "cC");
+    addProduction('C', "d");
+
+    printf("Grammar:\n");
+    for (int i = 0; i < prodCount; i++) {
+        printf("%c → %s\n", prods[i].lhs, prods[i].rhs);
+    }
+
+    buildLR1States();
+    printStates();
+
+    return 0;
+}
+
+
+
+
+
+============================================================================================================================
+11)Build the complete LR(1) parsing table and simulate parsing for a sample input string.
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_PRODUCTIONS 10
+#define MAX_ITEMS 100
+#define MAX_STATES 50
+#define MAX_SYMBOLS 128
+#define MAX_STACK 100
+
+typedef struct {
+    char lhs;
+    char rhs[10];
+} Production;
+
+typedef struct {
+    int prodIndex;
+    int dotPos;
+    char lookahead;
+} Item;
+
+typedef struct {
+    Item items[MAX_ITEMS];
+    int count;
+} ItemSet;
+
+typedef struct {
+    ItemSet core;
+    int transitions[MAX_SYMBOLS]; // symbol → target state
+} State;
+
+Production prods[MAX_PRODUCTIONS];
+int prodCount = 0;
+State states[MAX_STATES];
+int stateCount = 0;
+char terminals[] = "cd$";
+char nonTerminals[] = "SZC";
+
+char ACTION[MAX_STATES][MAX_SYMBOLS];
+int ACTION_NUM[MAX_STATES][MAX_SYMBOLS];
+int GOTO[MAX_STATES][MAX_SYMBOLS];
+
+int isTerminal(char ch) {
+    return (ch >= 'a' && ch <= 'z') || ch == '$';
+}
+
+void addProduction(char lhs, const char* rhs) {
+    prods[prodCount].lhs = lhs;
+    strcpy(prods[prodCount++].rhs, rhs);
+}
+
+int itemsEqual(Item a, Item b) {
+    return a.prodIndex == b.prodIndex && a.dotPos == b.dotPos && a.lookahead == b.lookahead;
+}
+
+int itemInSet(ItemSet* set, Item item) {
+    for (int i = 0; i < set->count; i++)
+        if (itemsEqual(set->items[i], item)) return 1;
+    return 0;
+}
+
+void computeFirst(char symbol, char* result, int* size) {
+    if (isTerminal(symbol)) {
+        result[(*size)++] = symbol;
+        return;
+    }
+    for (int i = 0; i < prodCount; i++) {
+        if (prods[i].lhs == symbol && prods[i].rhs[0] != '\0') {
+            computeFirst(prods[i].rhs[0], result, size);
+        }
+    }
+}
+
+void closure(ItemSet* set) {
+    int changed = 1;
+    while (changed) {
+        changed = 0;
+        for (int i = 0; i < set->count; i++) {
+            Item it = set->items[i];
+            char* rhs = prods[it.prodIndex].rhs;
+            if (it.dotPos >= strlen(rhs)) continue;
+            char B = rhs[it.dotPos];
+
+            if (!isTerminal(B)) {
+                char beta = rhs[it.dotPos + 1];
+                char first[10]; int fsz = 0;
+                if (beta) computeFirst(beta, first, &fsz);
+                else first[fsz++] = it.lookahead;
+
+                for (int j = 0; j < prodCount; j++) {
+                    if (prods[j].lhs == B) {
+                        for (int k = 0; k < fsz; k++) {
+                            Item newItem = { j, 0, first[k] };
+                            if (!itemInSet(set, newItem)) {
+                                set->items[set->count++] = newItem;
+                                changed = 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+int setsEqual(ItemSet* a, ItemSet* b) {
+    if (a->count != b->count) return 0;
+    for (int i = 0; i < a->count; i++)
+        if (!itemInSet(b, a->items[i])) return 0;
+    return 1;
+}
+
+int addState(ItemSet* core) {
+    for (int i = 0; i < stateCount; i++)
+        if (setsEqual(core, &states[i].core)) return i;
+    states[stateCount].core = *core;
+    return stateCount++;
+}
+
+ItemSet gotoSet(ItemSet* set, char symbol) {
+    ItemSet result = {0};
+    for (int i = 0; i < set->count; i++) {
+        Item it = set->items[i];
+        if (prods[it.prodIndex].rhs[it.dotPos] == symbol) {
+            Item temp = it;
+            temp.dotPos++;
+            result.items[result.count++] = temp;
+        }
+    }
+    closure(&result);
+    return result;
+}
+
+void buildStates() {
+    ItemSet start = {0};
+    start.items[start.count++] = (Item){ 0, 0, '$' };
+    closure(&start);
+
+    int queue[MAX_STATES], front = 0, rear = 0;
+    int id = addState(&start);
+    queue[rear++] = id;
+
+    while (front < rear) {
+        int curr = queue[front++];
+        ItemSet* currSet = &states[curr].core;
+
+        for (char sym = 'a'; sym <= 'z'; sym++) {
+            ItemSet next = gotoSet(currSet, sym);
+            if (next.count == 0) continue;
+            int nextID = addState(&next);
+            states[curr].transitions[(int)sym] = nextID;
+            if (nextID == stateCount - 1 && nextID != curr)
+                queue[rear++] = nextID;
+        }
+
+        for (char sym = 'A'; sym <= 'Z'; sym++) {
+            ItemSet next = gotoSet(currSet, sym);
+            if (next.count == 0) continue;
+            int nextID = addState(&next);
+            states[curr].transitions[(int)sym] = nextID;
+            if (nextID == stateCount - 1 && nextID != curr)
+                queue[rear++] = nextID;
+        }
+
+        // For $
+        ItemSet dollar = gotoSet(currSet, '$');
+        if (dollar.count > 0) {
+            int nextID = addState(&dollar);
+            states[curr].transitions['$'] = nextID;
+            if (nextID == stateCount - 1 && nextID != curr)
+                queue[rear++] = nextID;
+        }
+    }
+}
+
+void buildParsingTable() {
+    for (int s = 0; s < stateCount; s++) {
+        ItemSet* set = &states[s].core;
+        for (int i = 0; i < set->count; i++) {
+            Item item = set->items[i];
+            int len = strlen(prods[item.prodIndex].rhs);
+            char sym = prods[item.prodIndex].rhs[item.dotPos];
+
+            if (item.dotPos < len && isTerminal(sym)) {
+                int tgt = states[s].transitions[(int)sym];
+                ACTION[s][(int)sym] = 'S';
+                ACTION_NUM[s][(int)sym] = tgt;
+            }
+            else if (item.dotPos == len) {
+                if (prods[item.prodIndex].lhs == 'Z' && item.lookahead == '$') {
+                    ACTION[s]['$'] = 'A';
+                } else {
+                    ACTION[s][(int)item.lookahead] = 'R';
+                    ACTION_NUM[s][(int)item.lookahead] = item.prodIndex;
+                }
+            }
+        }
+
+        for (char sym = 'A'; sym <= 'Z'; sym++) {
+            int tgt = states[s].transitions[(int)sym];
+            if (tgt) GOTO[s][(int)sym] = tgt;
+        }
+    }
+}
+
+void printParsingTable() {
+    printf("\n=== LR(1) Parsing Table ===\n");
+    printf("State | ");
+    for (int i = 0; i < strlen(terminals); i++)
+        printf(" %c\t", terminals[i]);
+    for (int i = 0; i < strlen(nonTerminals); i++)
+        if (nonTerminals[i] != 'Z')
+            printf(" %c\t", nonTerminals[i]);
+    printf("\n-------------------------------------------------------------\n");
+
+    for (int s = 0; s < stateCount; s++) {
+        printf("  %d\t", s);
+        for (int i = 0; i < strlen(terminals); i++) {
+            char a = terminals[i];
+            if (ACTION[s][(int)a] == 'S')
+                printf("S%d\t", ACTION_NUM[s][(int)a]);
+            else if (ACTION[s][(int)a] == 'R')
+                printf("R%d\t", ACTION_NUM[s][(int)a]);
+            else if (ACTION[s][(int)a] == 'A')
+                printf("ACC\t");
+            else
+                printf("-\t");
+        }
+        for (int i = 0; i < strlen(nonTerminals); i++) {
+            char A = nonTerminals[i];
+            if (A == 'Z') continue;
+            if (GOTO[s][(int)A])
+                printf("%d\t", GOTO[s][(int)A]);
+            else
+                printf("-\t");
+        }
+        printf("\n");
+    }
+}
+
+void simulateParsing(const char* input) {
+    int stack[MAX_STACK]; char symbols[MAX_STACK];
+    int top = 0;
+    stack[top] = 0;
+    int ip = 0;
+
+    printf("\n=== Parsing Trace ===\n");
+    while (1) {
+        int state = stack[top];
+        char a = input[ip];
+
+        printf("Stack: ");
+        for (int i = 0; i <= top; i++) {
+            if (i > 0) printf("%c ", symbols[i]);
+            printf("%d ", stack[i]);
+        }
+        printf("  Input: %s  ", &input[ip]);
+
+        if (ACTION[state][(int)a] == 'S') {
+            int tgt = ACTION_NUM[state][(int)a];
+            printf("Action: Shift %d\n", tgt);
+            symbols[++top] = a;
+            stack[top] = tgt;
+            ip++;
+        } else if (ACTION[state][(int)a] == 'R') {
+            int p = ACTION_NUM[state][(int)a];
+            int len = strlen(prods[p].rhs);
+            printf("Action: Reduce %c → %s\n", prods[p].lhs, prods[p].rhs);
+            top -= len;
+            symbols[++top] = prods[p].lhs;
+            stack[top] = GOTO[stack[top - 1]][(int)symbols[top]];
+        } else if (ACTION[state][(int)a] == 'A') {
+            printf("Action: Accept \n");
+            break;
+        } else {
+            printf("Action: Error \n");
+            break;
+        }
+    }
+}
+
+int main() {
+    addProduction('Z', "S");    // Augmented start
+    addProduction('S', "CC");
+    addProduction('C', "cC");
+    addProduction('C', "d");
+
+    printf("Grammar Loaded.\n");
+    buildStates();
+    buildParsingTable();
+    printParsingTable();
+
+    char input[50];
+    printf("\nEnter input string (e.g., cdd$): ");
+    scanf("%s", input);
+
+    simulateParsing(input);
+    return 0;
+}
+
+
+
+
+===============================================================================================================================
+12)Write a YACC program to parse arithmetic expressions with proper operator precedence and associativity
+
+
+%{
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
+
+int yylex();
+int yyerror(const char* s);
+%}
+
+%token NUMBER
+%left '+' '-'
+%left '*' '/'
+
+%%
+input:
+    | input expr '\n' { printf("Result = %d\n", $2); }
+    ;
+
+expr:
+      NUMBER           { $$ = $1; }
+    | expr '+' expr    { $$ = $1 + $3; }
+    | expr '-' expr    { $$ = $1 - $3; }
+    | expr '*' expr    { $$ = $1 * $3; }
+    | expr '/' expr    {
+                          if ($3 == 0) {
+                              printf("Error: Division by zero\n");
+                              exit(1);
+                          }
+                          $$ = $1 / $3;
+                       }
+    | '(' expr ')'     { $$ = $2; }
+    ;
+%%
+
+int main() {
+    printf("Enter expression (Ctrl+D to quit):\n");
+    yyparse();
+    return 0;
+}
+
+int yyerror(const char *s) {
+    printf("Syntax error: %s\n", s);
+    return 1;
+}
+
+int yylex() {
+    int c;
+    while ((c = getchar()) == ' ' || c == '\t');
+
+    if (isdigit(c)) {
+        ungetc(c, stdin);
+        scanf("%d", &yylval);
+        return NUMBER;
+    }
+
+    if (c == EOF || c == '\n') return c;
+
+    return c;
+}
+
+
+
+====================================================================================
+13)Implement a stack-based code generator that converts high-level expressions into stack instructions
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX_EXPR 100
+#define MAX_STACK 50
+
+// Stack for operators
+char opStack[MAX_STACK];
+int opTop = -1;
+
+// Stack for instructions
+char instructions[MAX_STACK][50];
+int instTop = -1;
+
+// Function to check if character is operator
+int isOperator(char c)
+{
+    return (c == '+' || c == '-' || c == '*' || c == '/' || c == '^');
+}
+
+// Function to get precedence of operator
+int precedence(char op)
+{
+    switch (op)
+    {
+    case '+':
+    case '-':
+        return 1;
+    case '*':
+    case '/':
+        return 2;
+    case '^':
+        return 3;
+    default:
+        return 0;
+    }
+}
+
+// Push operator to stack
+void pushOp(char op)
+{
+    opStack[++opTop] = op;
+}
+
+// Pop operator from stack
+char popOp()
+{
+    if (opTop >= 0)
+        return opStack[opTop--];
+    return '\0';
+}
+
+// Add instruction
+void addInstruction(char *inst)
+{
+    strcpy(instructions[++instTop], inst);
+}
+
+// Convert infix to postfix and generate stack instructions
+void generateStackInstructions(char *expression)
+{
+    char postfix[MAX_EXPR];
+    int postIdx = 0;
+    int i;
+
+    printf("Original Expression: %s\n", expression);
+    printf("Generating Stack Instructions:\n");
+    printf("--------------------------------\n");
+
+    // Convert to postfix
+    for (i = 0; expression[i]; i++)
+    {
+        char c = expression[i];
+
+        if (isspace(c))
+            continue;
+
+        if (isalnum(c))
+        {
+            postfix[postIdx++] = c;
+        }
+        else if (c == '(')
+        {
+            pushOp(c);
+        }
+        else if (c == ')')
+        {
+            while (opTop >= 0 && opStack[opTop] != '(')
+            {
+                postfix[postIdx++] = popOp();
+            }
+            popOp(); // Remove '('
+        }
+        else if (isOperator(c))
+        {
+            while (opTop >= 0 && opStack[opTop] != '(' &&
+                   precedence(opStack[opTop]) >= precedence(c))
+            {
+                postfix[postIdx++] = popOp();
+            }
+            pushOp(c);
+        }
+    }
+
+    while (opTop >= 0)
+    {
+        postfix[postIdx++] = popOp();
+    }
+    postfix[postIdx] = '\0';
+
+    printf("Postfix Expression: %s\n\n", postfix);
+
+    // Generate stack instructions from postfix
+    printf("Stack Instructions:\n");
+    for (i = 0; postfix[i]; i++)
+    {
+        char c = postfix[i];
+
+        if (isalnum(c))
+        {
+            printf("PUSH %c\n", c);
+            char inst[20];
+            sprintf(inst, "PUSH %c", c);
+            addInstruction(inst);
+        }
+        else if (isOperator(c))
+        {
+            printf("POP t2\n");
+            printf("POP t1\n");
+            printf("t3 = t1 %c t2\n", c);
+            printf("PUSH t3\n\n");
+
+            addInstruction("POP t2");
+            addInstruction("POP t1");
+            char inst[20];
+            sprintf(inst, "t3 = t1 %c t2", c);
+            addInstruction(inst);
+            addInstruction("PUSH t3");
+        }
+    }
+}
+
+// Simulate stack execution
+void simulateExecution(char *expression)
+{
+    int stack[MAX_STACK];
+    int stackTop = -1;
+    char postfix[MAX_EXPR];
+    int postIdx = 0;
+    int i;
+
+    // Variable values for simulation
+    int values[26] = {0};
+    int used[26] = {0}; // Track which variables are in use
+
+    // First pass to find which variables are used
+    for (i = 0; expression[i]; i++)
+    {
+        char c = expression[i];
+        if (isalpha(c))
+        {
+            used[c - 'a'] = 1;
+        }
+    }
+
+    // Prompt user to enter values
+    for (int j = 0; j < 26; j++)
+    {
+        if (used[j])
+        {
+            printf("Enter value for %c: ", 'a' + j);
+            scanf("%d", &values[j]);
+        }
+    }
+
+    // Reset stacks
+    opTop = -1;
+
+    // Convert to postfix again for simulation
+    for (i = 0; expression[i]; i++)
+    {
+        char c = expression[i];
+
+        if (isspace(c))
+            continue;
+
+        if (isalnum(c))
+        {
+            postfix[postIdx++] = c;
+        }
+        else if (c == '(')
+        {
+            pushOp(c);
+        }
+        else if (c == ')')
+        {
+            while (opTop >= 0 && opStack[opTop] != '(')
+            {
+                postfix[postIdx++] = popOp();
+            }
+            popOp();
+        }
+        else if (isOperator(c))
+        {
+            while (opTop >= 0 && opStack[opTop] != '(' &&
+                   precedence(opStack[opTop]) >= precedence(c))
+            {
+                postfix[postIdx++] = popOp();
+            }
+            pushOp(c);
+        }
+    }
+
+    while (opTop >= 0)
+    {
+        postfix[postIdx++] = popOp();
+    }
+    postfix[postIdx] = '\0';
+
+    printf("\nSimulation with values:\n");
+    printf("----------------------------------------\n");
+
+    // Execute postfix expression
+    for (i = 0; postfix[i]; i++)
+    {
+        char c = postfix[i];
+
+        if (isalnum(c))
+        {
+            int val = isdigit(c) ? c - '0' : values[c - 'a'];
+            stack[++stackTop] = val;
+            printf("PUSH %c (value: %d)\n", c, val);
+        }
+        else if (isOperator(c))
+        {
+            int b = stack[stackTop--];
+            int a = stack[stackTop--];
+            int result;
+
+            switch (c)
+            {
+            case '+':
+                result = a + b;
+                break;
+            case '-':
+                result = a - b;
+                break;
+            case '*':
+                result = a * b;
+                break;
+            case '/':
+                result = a / b;
+                break;
+            case '^':
+                result = 1;
+                for (int j = 0; j < b; j++)
+                    result *= a;
+                break;
+            }
+
+            stack[++stackTop] = result;
+            printf("POP %d, POP %d\n", b, a);
+            printf("COMPUTE %d %c %d = %d\n", a, c, b, result);
+            printf("PUSH %d\n\n", result);
+        }
+    }
+
+    printf("Final Result: %d\n", stack[stackTop]);
+}
+
+int main()
+{
+    char expressions[][20] = {
+        "a+b*c",
+        "(a+b)*c",
+        "a+b*c-d",
+        "a*b+c*d"};
+
+    int numExpr = sizeof(expressions) / sizeof(expressions[0]);
+
+    for (int i = 0; i < numExpr; i++)
+    {
+        printf("===========================================\n");
+        printf("Expression %d: %s\n", i + 1, expressions[i]);
+        printf("===========================================\n");
+
+        instTop = -1; // Reset instruction counter
+        generateStackInstructions(expressions[i]);
+        simulateExecution(expressions[i]);
+
+        printf("\n\n");
+    }
+
+    return 0;
+}
+
+
+
+
+
+================================================================================================================
+14)Write a program that detects and eliminates common subexpressions in a block of intermediate code
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_LINES 100
+#define MAX_LENGTH 100
+#define MAX_EXPR 50
+
+// Structure to store three-address code
+typedef struct {
+    char result[10];
+    char operand1[10];
+    char operator[5];
+    char operand2[10];
+    char original[MAX_LENGTH];
+    int eliminated;
+} ThreeAddressCode;
+
+// Structure to store expressions for CSE
+typedef struct {
+    char expr[20];
+    char result[10];
+    int lineNum;
+} Expression;
+
+ThreeAddressCode code[MAX_LINES];
+Expression expressions[MAX_EXPR];
+int codeCount = 0;
+int exprCount = 0;
+
+// Function to parse three-address code line
+void parseThreeAddressCode(char* line, int index) {
+    char temp[MAX_LENGTH];
+    strcpy(temp, line);
+    strcpy(code[index].original, line);
+    code[index].eliminated = 0;
+    
+    // Parse format: result = operand1 operator operand2
+    char* token = strtok(temp, " =");
+    strcpy(code[index].result, token);
+    
+    token = strtok(NULL, " ");
+    strcpy(code[index].operand1, token);
+    
+    token = strtok(NULL, " ");
+    strcpy(code[index].operator, token);
+    
+    token = strtok(NULL, " ");
+    if(token != NULL) {
+        strcpy(code[index].operand2, token);
+    } else {
+        strcpy(code[index].operand2, "");
+        strcpy(code[index].operator, "");
+    }
+}
+
+// Function to create expression string
+void createExpression(char* expr, char* op1, char* operator, char* op2) {
+    if(strlen(operator) == 0) {
+        strcpy(expr, op1);
+    } else {
+        sprintf(expr, "%s%s%s", op1, operator, op2);
+    }
+}
+
+// Function to check if expression already exists
+int findExpression(char* expr) {
+    for(int i = 0; i < exprCount; i++) {
+        if(strcmp(expressions[i].expr, expr) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Function to eliminate common subexpressions
+void eliminateCommonSubexpressions() {
+    printf("Detecting and Eliminating Common Subexpressions:\n");
+    printf("===============================================\n\n");
+    
+    for(int i = 0; i < codeCount; i++) {
+        char currentExpr[20];
+        createExpression(currentExpr, code[i].operand1, code[i].operator, code[i].operand2);
+        
+        printf("Line %d: %s\n", i+1, code[i].original);
+        printf("Expression: %s\n", currentExpr);
+        
+        int found = findExpression(currentExpr);
+        
+        if(found != -1) {
+            printf("*** COMMON SUBEXPRESSION FOUND! ***\n");
+            printf("Same expression '%s' computed at line %d\n", currentExpr, expressions[found].lineNum);
+            printf("Eliminating: Replace with %s = %s\n", code[i].result, expressions[found].result);
+            
+            // Mark current line as eliminated
+            code[i].eliminated = 1;
+            
+            // Create new assignment statement
+            sprintf(code[i].original, "%s = %s", code[i].result, expressions[found].result);
+            strcpy(code[i].operand1, expressions[found].result);
+            strcpy(code[i].operator, "");
+            strcpy(code[i].operand2, "");
+        } else {
+            printf("New expression - adding to expression table\n");
+            strcpy(expressions[exprCount].expr, currentExpr);
+            strcpy(expressions[exprCount].result, code[i].result);
+            expressions[exprCount].lineNum = i + 1;
+            exprCount++;
+        }
+        printf("\n");
+    }
+}
+
+// Function to display optimized code
+void displayOptimizedCode() {
+    printf("Optimized Code After CSE:\n");
+    printf("========================\n");
+    
+    for(int i = 0; i < codeCount; i++) {
+        if(code[i].eliminated) {
+            printf("t%d = %s  // Eliminated CSE\n", i+1, code[i].operand1);
+        } else {
+            printf("%s\n", code[i].original);
+        }
+    }
+}
+
+// Function to display expression table
+void displayExpressionTable() {
+    printf("\nExpression Table:\n");
+    printf("================\n");
+    printf("Expression\tResult\tFirst Occurrence\n");
+    printf("----------\t------\t----------------\n");
+    
+    for(int i = 0; i < exprCount; i++) {
+        printf("%s\t\t%s\tLine %d\n", expressions[i].expr, expressions[i].result, expressions[i].lineNum);
+    }
+}
+
+int main() {
+    // Sample three-address code with common subexpressions
+    char inputCode[][MAX_LENGTH] = {
+        "t1 = a + b",
+        "t2 = c + d", 
+        "t3 = a + b",  // Common subexpression
+        "t4 = t1 * t2",
+        "t5 = c + d",  // Common subexpression
+        "t6 = t3 + t5",
+        "t7 = a + b",  // Common subexpression
+        "t8 = t4 - t7"
+    };
+    
+    codeCount = sizeof(inputCode) / sizeof(inputCode[0]);
+    
+    printf("Original Three-Address Code:\n");
+    printf("===========================\n");
+    for(int i = 0; i < codeCount; i++) {
+        printf("%d: %s\n", i+1, inputCode[i]);
+        parseThreeAddressCode(inputCode[i], i);
+    }
+    printf("\n");
+    
+    eliminateCommonSubexpressions();
+    displayExpressionTable();
+    printf("\n");
+    displayOptimizedCode();
+    
+    printf("\n\nSummary:\n");
+    printf("========\n");
+    printf("Original lines: %d\n", codeCount);
+    
+    int eliminated = 0;
+    for(int i = 0; i < codeCount; i++) {
+        if(code[i].eliminated) eliminated++;
+    }
+    
+    printf("Common subexpressions eliminated: %d\n", eliminated);
+    printf("Optimization achieved: %d redundant computations removed\n", eliminated);
+    
+    return 0;
+}
+
+
+
+
+=========================================================================================================================
+15)Implement constant folding and constant propagation optimization techniques by considering Three Address Code instructions
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX_LINES 100
+#define MAX_LENGTH 100
+#define MAX_VARS 50
+
+// Structure for three-address code
+typedef struct {
+    char result[10];
+    char operand1[10];
+    char operator[5];
+    char operand2[10];
+    char original[MAX_LENGTH];
+    int optimized;
+} TAC;
+
+// Structure for constant table
+typedef struct {
+    char variable[10];
+    int value;
+    int isConstant;
+} ConstantTable;
+
+TAC code[MAX_LINES];
+ConstantTable constants[MAX_VARS];
+int codeCount = 0;
+int constCount = 0;
+
+// Function to check if string is a number
+int isNumber(char* str) {
+    if(str[0] == '\0') return 0;
+    for(int i = 0; str[i]; i++) {
+        if(!isdigit(str[i]) && str[i] != '-') return 0;
+    }
+    return 1;
+}
+
+// Function to get integer value
+int getValue(char* str) {
+    return atoi(str);
+}
+
+// Function to find variable in constant table
+int findConstant(char* var) {
+    for(int i = 0; i < constCount; i++) {
+        if(strcmp(constants[i].variable, var) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Function to add/update constant in table
+void updateConstant(char* var, int value, int isConst) {
+    int index = findConstant(var);
+    if(index != -1) {
+        constants[index].value = value;
+        constants[index].isConstant = isConst;
+    } else {
+        strcpy(constants[constCount].variable, var);
+        constants[constCount].value = value;
+        constants[constCount].isConstant = isConst;
+        constCount++;
+    }
+}
+
+// Function to parse three-address code
+void parseCode(char* line, int index) {
+    char temp[MAX_LENGTH];
+    strcpy(temp, line);
+    strcpy(code[index].original, line);
+    code[index].optimized = 0;
+    
+    // Initialize all fields
+    strcpy(code[index].result, "");
+    strcpy(code[index].operand1, "");
+    strcpy(code[index].operator, "");
+    strcpy(code[index].operand2, "");
+    
+    // Find the '=' position
+    char* equalPos = strchr(temp, '=');
+    if(equalPos == NULL) return;
+    
+    // Extract result (left side of =)
+    *equalPos = '\0';
+    char* result = strtok(temp, " \t");
+    if(result != NULL) {
+        strcpy(code[index].result, result);
+    }
+    
+    // Extract right side of =
+    char* rightSide = equalPos + 1;
+    
+    // Skip leading spaces
+    while(*rightSide == ' ' || *rightSide == '\t') rightSide++;
+    
+    // Parse right side: operand1 [operator operand2]
+    char rightTemp[MAX_LENGTH];
+    strcpy(rightTemp, rightSide);
+    
+    char* token = strtok(rightTemp, " \t");
+    if(token != NULL) {
+        strcpy(code[index].operand1, token);
+        
+        token = strtok(NULL, " \t");
+        if(token != NULL) {
+            strcpy(code[index].operator, token);
+            
+            token = strtok(NULL, " \t");
+            if(token != NULL) {
+                strcpy(code[index].operand2, token);
+            }
+        }
+    }
+}
+
+// Function to perform constant folding
+void constantFolding() {
+    printf("Performing Constant Folding:\n");
+    printf("============================\n\n");
+    
+    for(int i = 0; i < codeCount; i++) {
+        printf("Line %d: %s\n", i+1, code[i].original);
+        
+        // Check if both operands are constants
+        if(strlen(code[i].operator) > 0) {
+            int op1IsNum = isNumber(code[i].operand1);
+            int op2IsNum = isNumber(code[i].operand2);
+            
+            int op1Val, op2Val;
+            int op1Const = 0, op2Const = 0;
+            
+            // Get operand1 value
+            if(op1IsNum) {
+                op1Val = getValue(code[i].operand1);
+                op1Const = 1;
+            } else {
+                int index = findConstant(code[i].operand1);
+                if(index != -1 && constants[index].isConstant) {
+                    op1Val = constants[index].value;
+                    op1Const = 1;
+                }
+            }
+            
+            // Get operand2 value
+            if(op2IsNum) {
+                op2Val = getValue(code[i].operand2);
+                op2Const = 1;
+            } else {
+                int index = findConstant(code[i].operand2);
+                if(index != -1 && constants[index].isConstant) {
+                    op2Val = constants[index].value;
+                    op2Const = 1;
+                }
+            }
+            
+            // Perform constant folding if both operands are constants
+            if(op1Const && op2Const) {
+                int result;
+                char op = code[i].operator[0];
+                
+                switch(op) {
+                    case '+': result = op1Val + op2Val; break;
+                    case '-': result = op1Val - op2Val; break;
+                    case '*': result = op1Val * op2Val; break;
+                    case '/': result = op1Val / op2Val; break;
+                    default: result = 0;
+                }
+                
+                printf("*** CONSTANT FOLDING: %d %c %d = %d ***\n", 
+                       op1Val, op, op2Val, result);
+                
+                // Update the code
+                sprintf(code[i].original, "%s = %d", code[i].result, result);
+                sprintf(code[i].operand1, "%d", result);
+                strcpy(code[i].operator, "");
+                strcpy(code[i].operand2, "");
+                code[i].optimized = 1;
+                
+                // Add to constant table
+                updateConstant(code[i].result, result, 1);
+            } else {
+                // No constant folding possible
+                if(op1Const) {
+                    printf("Operands: %s=constant(%d), %s=variable\n", 
+                           code[i].operand1, op1Val, code[i].operand2);
+                } else if(op2Const) {
+                    printf("Operands: %s=variable, %s=constant(%d)\n", 
+                           code[i].operand1, code[i].operand2, op2Val);
+                } else {
+                    printf("Operands: %s=variable, %s=variable\n", 
+                           code[i].operand1, code[i].operand2);
+                }
+                
+                // Update constant table for result (not constant)
+                updateConstant(code[i].result, 0, 0);
+            }
+        } else {
+            // Assignment statement
+            if(isNumber(code[i].operand1)) {
+                int value = getValue(code[i].operand1);
+                updateConstant(code[i].result, value, 1);
+                printf("Assignment: %s = %d (constant)\n", code[i].result, value);
+            } else {
+                int index = findConstant(code[i].operand1);
+                if(index != -1 && constants[index].isConstant) {
+                    printf("*** CONSTANT PROPAGATION: %s = %s (value: %d) ***\n",
+                           code[i].result, code[i].operand1, constants[index].value);
+                    sprintf(code[i].original, "%s = %d", code[i].result, constants[index].value);
+                    sprintf(code[i].operand1, "%d", constants[index].value);
+                    code[i].optimized = 1;
+                    updateConstant(code[i].result, constants[index].value, 1);
+                } else {
+                    updateConstant(code[i].result, 0, 0);
+                    printf("Assignment: %s = %s (variable)\n", code[i].result, code[i].operand1);
+                }
+            }
+        }
+        printf("\n");
+    }
+}
+
+// Function to display constant table
+void displayConstantTable() {
+    printf("Constant Table:\n");
+    printf("===============\n");
+    printf("Variable\tValue\tIs Constant\n");
+    printf("--------\t-----\t-----------\n");
+    
+    for(int i = 0; i < constCount; i++) {
+        printf("%s\t\t%d\t%s\n", 
+               constants[i].variable, 
+               constants[i].value,
+               constants[i].isConstant ? "Yes" : "No");
+    }
+}
+
+// Function to display optimized code
+void displayOptimizedCode() {
+    printf("\nOptimized Code:\n");
+    printf("===============\n");
+    
+    for(int i = 0; i < codeCount; i++) {
+        if(code[i].optimized) {
+            printf("%d: %s  // Optimized\n", i+1, code[i].original);
+        } else {
+            printf("%d: %s\n", i+1, code[i].original);
+        }
+    }
+}
+
+int main() {
+    // Sample three-address code for optimization
+    char inputCode[][MAX_LENGTH] = {
+        "a = 5",
+        "b = 10", 
+        "c = a + b",     
+        "d = c * 2",     
+        "e = d - 5",     
+        "f = a + 3",     
+        "g = b / 2",     
+        "h = g + f",     
+        "x = h",         
+        "y = x + 1"      
+    };
+    
+    codeCount = sizeof(inputCode) / sizeof(inputCode[0]);
+    
+    printf("Original Three-Address Code:\n");
+    printf("============================\n");
+    for(int i = 0; i < codeCount; i++) {
+        printf("%d: %s\n", i+1, inputCode[i]);
+        parseCode(inputCode[i], i);
+    }
+    printf("\n");
+    
+    constantFolding();
+    displayConstantTable();
+    displayOptimizedCode();
+    
+    printf("\n\nOptimization Summary:\n");
+    printf("====================\n");
+    
+    int optimizedLines = 0;
+    for(int i = 0; i < codeCount; i++) {
+        if(code[i].optimized) optimizedLines++;
+    }
+    
+    printf("Total lines: %d\n", codeCount);
+    printf("Optimized lines: %d\n", optimizedLines);
+    printf("Constant expressions folded: %d\n", optimizedLines);
+    
+    return 0;
+}
+	
+
+========================================================================================================
+
